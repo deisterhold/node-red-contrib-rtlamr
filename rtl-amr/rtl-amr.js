@@ -1,13 +1,21 @@
-module.exports = function(RED) {
+module.exports = function (RED) {
     function RtlAmr(config) {
         RED.nodes.createNode(this, config);
         var node = this;
 
-        node.on('input', function(msg, send, done) {
+        node.server = RED.nodes.getNode(config.server);
+
+        if (node.server) {
+            node.log("Using server: " + node.server);
+        } else {
+            node.warn("No server specified.");
+        }
+
+        node.on('input', function (msg, send, done) {
             // For maximum backwards compatibility, check that send exists.
             // If this node is installed in Node-RED 0.x, it will need to
             // fallback to using `node.send`
-            send = send || function() { node.send.apply(node, arguments) }
+            send = send || function () { node.send.apply(node, arguments) }
 
             // red, green, yellow, blue, grey
             // this.status({fill:"red", shape:"ring", text:"disconnected"});
@@ -29,7 +37,7 @@ module.exports = function(RED) {
             }
         });
 
-        node.on('close', function(removed, done) {
+        node.on('close', function (removed, done) {
             // tidy up any state
             if (removed) {
                 // This node has been disabled/deleted
