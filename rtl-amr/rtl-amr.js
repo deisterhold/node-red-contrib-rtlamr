@@ -78,34 +78,52 @@ module.exports = function (RED) {
                 return;
             }
 
-            try {
-                node.rtlamr = spawn(node.cmd, node.args);
-                node.status({ fill: 'green', shape: 'dot', text: 'listening' });
-
-                node.rtlamr.stdout.on('data', function (data) {
-                    const json = tryParseJSON(data)
-
-                    if (json) {
-                        var msg = {
-                            payload: json
-                        };
-                        node.send(msg);
-                    } else {
-                        // not JSON
-                        node.log('rtlamr STDOUT: ' + json)
-                    }
-                });
-
-                node.rtlamr.stderr.on('data', function (data) {
-                    node.log('rtlamr STDERR:  ' + data)
-                });
-
-                node.rtlamr.on('close', function (code, signal) {
-                    node.rtlamr = null;
-                    node.status({ fill: 'red', shape: 'ring', text: 'stopped' });
-                });
-
-                node.rtlamr.on('error', function (e) {
+            // Wait 10 seconds before starting rtlamr
+            setTimeout(() => {
+                try {
+                    node.rtlamr = spawn(node.cmd, node.args);
+                    node.status({ fill: 'green', shape: 'dot', text: 'listening' });
+    
+                    node.rtlamr.stdout.on('data', function (data) {
+                        const json = tryParseJSON(data)
+    
+                        if (json) {
+                            var msg = {
+                                payload: json
+                            };
+                            node.send(msg);
+                        } else {
+                            // not JSON
+                            node.log('rtlamr STDOUT: ' + json)
+                        }
+                    });
+    
+                    node.rtlamr.stderr.on('data', function (data) {
+                        node.log('rtlamr STDERR:  ' + data)
+                    });
+    
+                    node.rtlamr.on('close', function (code, signal) {
+                        node.rtlamr = null;
+                        node.status({ fill: 'red', shape: 'ring', text: 'stopped' });
+                    });
+    
+                    node.rtlamr.on('error', function (e) {
+                        switch (e.errno) {
+                            case 'ENOENT':
+                                node.warn('Command not found: ' + node.cmd);
+                                break;
+                            case 'EACCES':
+                                node.warn('Command not executable: ' + node.cmd);
+                                break;
+                            default:
+                                node.log('error: ' + e);
+                                node.debug('rtlamr error: ' + e);
+                                break;
+                        }
+        
+                        node.status({ fill: 'red', shape: 'ring', text: 'error' });
+                    });
+                } catch (e) {
                     switch (e.errno) {
                         case 'ENOENT':
                             node.warn('Command not found: ' + node.cmd);
@@ -120,23 +138,8 @@ module.exports = function (RED) {
                     }
     
                     node.status({ fill: 'red', shape: 'ring', text: 'error' });
-                });
-            } catch (e) {
-                switch (e.errno) {
-                    case 'ENOENT':
-                        node.warn('Command not found: ' + node.cmd);
-                        break;
-                    case 'EACCES':
-                        node.warn('Command not executable: ' + node.cmd);
-                        break;
-                    default:
-                        node.log('error: ' + e);
-                        node.debug('rtlamr error: ' + e);
-                        break;
                 }
-
-                node.status({ fill: 'red', shape: 'ring', text: 'error' });
-            }
+            }, 10000);
         }
 
         node.on('close', function (done) {
