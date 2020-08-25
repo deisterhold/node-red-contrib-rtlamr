@@ -23,14 +23,66 @@ module.exports = function (RED) {
         var node = this;
         node.cmd = 'rtlamr';
         node.args = ['-format', 'json'];
-        node.child = null;
+        node.rtlamr = null;
+        node.rtltcp = null;
 
         function start() {
             try {
-                node.child = spawn(node.cmd, node.args)
-                node.status({ fill: 'green', shape: 'dot', text: 'listening' })
+                node.rtltcp = spawn('rtl_tcp', []);
 
-                node.child.stdout.on('data', function (data) {
+                node.rtltcp.stdout.on('data', function (data) {
+                    node.log('rtl_tcp STDOUT: ' + data)
+                });
+
+                node.rtltcp.stderr.on('data', function (data) {
+                    node.log('rtl_tcp STDERR:  ' + data)
+                });
+
+                node.rtltcp.on('close', function (code, signal) {
+                    node.rtltcp = null;
+                    node.status({ fill: 'red', shape: 'ring', text: 'stopped' });
+                });
+
+                node.rtltcp.on('error', function (e) {
+                    switch (e.errno) {
+                        case 'ENOENT':
+                            node.warn('Command not found: ' + node.cmd);
+                            break;
+                        case 'EACCES':
+                            node.warn('Command not executable: ' + node.cmd);
+                            break;
+                        default:
+                            node.log('error: ' + e);
+                            node.debug('rtl_tcp error: ' + e);
+                            break;
+                    }
+    
+                    node.status({ fill: 'red', shape: 'ring', text: 'error' });
+                });
+            } catch (e) {
+                switch (e.errno) {
+                    case 'ENOENT':
+                        node.warn('Command not found: ' + node.cmd);
+                        break;
+                    case 'EACCES':
+                        node.warn('Command not executable: ' + node.cmd);
+                        break;
+                    default:
+                        node.log('error: ' + e);
+                        node.debug('rtl_tcp error: ' + e);
+                        break;
+                }
+
+                node.status({ fill: 'red', shape: 'ring', text: 'error' });
+
+                return;
+            }
+
+            try {
+                node.rtlamr = spawn(node.cmd, node.args);
+                node.status({ fill: 'green', shape: 'dot', text: 'listening' });
+
+                node.rtlamr.stdout.on('data', function (data) {
                     const json = tryParseJSON(data)
 
                     if (json) {
@@ -44,37 +96,81 @@ module.exports = function (RED) {
                     }
                 });
 
-                node.child.stderr.on('data', function (data) {
+                node.rtlamr.stderr.on('data', function (data) {
                     node.log('rtlamr STDERR:  ' + data)
-                })
+                });
 
-                node.child.on('close', function (code, signal) {
-                    node.child = null
-                    node.status({ fill: 'red', shape: 'ring', text: 'stopped' })
-                })
+                node.rtlamr.on('close', function (code, signal) {
+                    node.rtlamr = null;
+                    node.status({ fill: 'red', shape: 'ring', text: 'stopped' });
+                });
 
-                node.child.on('error', function (err) {
-                    if (err.errno === 'ENOENT') { node.warn('Command not found') } else if (err.errno === 'EACCES') { node.warn('Command not executable') } else { node.log('error: ' + err) }
-                    node.status({ fill: 'red', shape: 'ring', text: 'error' })
-                })
+                node.rtlamr.on('error', function (e) {
+                    switch (e.errno) {
+                        case 'ENOENT':
+                            node.warn('Command not found: ' + node.cmd);
+                            break;
+                        case 'EACCES':
+                            node.warn('Command not executable: ' + node.cmd);
+                            break;
+                        default:
+                            node.log('error: ' + e);
+                            node.debug('rtlamr error: ' + e);
+                            break;
+                    }
+    
+                    node.status({ fill: 'red', shape: 'ring', text: 'error' });
+                });
             } catch (e) {
-                if (e.errno === 'ENOENT') { node.warn('Command not found: ' + node.cmd) } else if (e.errno === 'EACCES') { node.warn('Command not executable: ' + node.cmd) } else {
-                    node.log('error: ' + e)
-                    node.debug('rtlamr error: ' + e)
+                switch (e.errno) {
+                    case 'ENOENT':
+                        node.warn('Command not found: ' + node.cmd);
+                        break;
+                    case 'EACCES':
+                        node.warn('Command not executable: ' + node.cmd);
+                        break;
+                    default:
+                        node.log('error: ' + e);
+                        node.debug('rtlamr error: ' + e);
+                        break;
                 }
-                node.status({ fill: 'red', shape: 'ring', text: 'error' })
+
+                node.status({ fill: 'red', shape: 'ring', text: 'error' });
             }
         }
 
         node.on('close', function (done) {
-            if (node.child != null) {
-                node.child.on('exit', function () {
-                    done()
-                })
-                node.child.kill('SIGKILL')
-            }
+            // Clear status
             node.status({});
-            done();
+
+            // If both processes have exited, exit.
+            if (node.rtlamr == null && node.rtltcp == null) {
+                done();
+            }
+
+            var count = 0;
+
+            // If rtlamr is running try to kill it, otherwise increment counter
+            if (node.rtlamr != null) {
+                node.rtlamr.on('exit', function () {
+                    count++;
+                    if (count >= 2) { done(); }
+                })
+                node.rtlamr.kill('SIGKILL');
+            } else {
+                count++;
+            }
+
+            // If rtltcp is running try to kill it, otherwise increment counter
+            if (node.rtltcp != null) {
+                node.rtltcp.on('exit', function () {
+                    count++;
+                    if (count >= 2) { done(); }
+                })
+                node.rtltcp.kill('SIGKILL');
+            } else {
+                count++;
+            }
         });
 
         start();
