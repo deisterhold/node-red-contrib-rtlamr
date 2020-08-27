@@ -24,106 +24,41 @@ module.exports = function (RED) {
         node.cmd = 'rtlamr';
         node.args = ['-format', 'json'];
         node.rtlamr = null;
-        node.rtltcp = null;
+        node.device = config.device;
+
+        if (node.device) {
+            node.args.push('-d', node.device);
+        }
 
         function start() {
             try {
-                node.rtltcp = spawn('rtl_tcp', []);
+                node.rtlamr = spawn(node.cmd, node.args);
+                node.status({ fill: 'green', shape: 'dot', text: 'listening' });
 
-                node.rtltcp.stdout.on('data', function (data) {
-                    node.log('rtl_tcp STDOUT: ' + data)
+                node.rtlamr.stdout.on('data', function (data) {
+                    const json = tryParseJSON(data)
+
+                    if (json) {
+                        var msg = {
+                            payload: json
+                        };
+                        node.send(msg);
+                    } else {
+                        // not JSON
+                        node.log('rtlamr STDOUT: ' + json)
+                    }
                 });
 
-                node.rtltcp.stderr.on('data', function (data) {
-                    node.log('rtl_tcp STDERR:  ' + data)
+                node.rtlamr.stderr.on('data', function (data) {
+                    node.log('rtlamr STDERR:  ' + data)
                 });
 
-                node.rtltcp.on('close', function (code, signal) {
-                    node.rtltcp = null;
+                node.rtlamr.on('close', function (code, signal) {
+                    node.rtlamr = null;
                     node.status({ fill: 'red', shape: 'ring', text: 'stopped' });
                 });
 
-                node.rtltcp.on('error', function (e) {
-                    switch (e.errno) {
-                        case 'ENOENT':
-                            node.warn('Command not found: ' + node.cmd);
-                            break;
-                        case 'EACCES':
-                            node.warn('Command not executable: ' + node.cmd);
-                            break;
-                        default:
-                            node.log('error: ' + e);
-                            node.debug('rtl_tcp error: ' + e);
-                            break;
-                    }
-    
-                    node.status({ fill: 'red', shape: 'ring', text: 'error' });
-                });
-            } catch (e) {
-                switch (e.errno) {
-                    case 'ENOENT':
-                        node.warn('Command not found: ' + node.cmd);
-                        break;
-                    case 'EACCES':
-                        node.warn('Command not executable: ' + node.cmd);
-                        break;
-                    default:
-                        node.log('error: ' + e);
-                        node.debug('rtl_tcp error: ' + e);
-                        break;
-                }
-
-                node.status({ fill: 'red', shape: 'ring', text: 'error' });
-
-                return;
-            }
-
-            // Wait 10 seconds before starting rtlamr
-            setTimeout(() => {
-                try {
-                    node.rtlamr = spawn(node.cmd, node.args);
-                    node.status({ fill: 'green', shape: 'dot', text: 'listening' });
-    
-                    node.rtlamr.stdout.on('data', function (data) {
-                        const json = tryParseJSON(data)
-    
-                        if (json) {
-                            var msg = {
-                                payload: json
-                            };
-                            node.send(msg);
-                        } else {
-                            // not JSON
-                            node.log('rtlamr STDOUT: ' + json)
-                        }
-                    });
-    
-                    node.rtlamr.stderr.on('data', function (data) {
-                        node.log('rtlamr STDERR:  ' + data)
-                    });
-    
-                    node.rtlamr.on('close', function (code, signal) {
-                        node.rtlamr = null;
-                        node.status({ fill: 'red', shape: 'ring', text: 'stopped' });
-                    });
-    
-                    node.rtlamr.on('error', function (e) {
-                        switch (e.errno) {
-                            case 'ENOENT':
-                                node.warn('Command not found: ' + node.cmd);
-                                break;
-                            case 'EACCES':
-                                node.warn('Command not executable: ' + node.cmd);
-                                break;
-                            default:
-                                node.log('error: ' + e);
-                                node.debug('rtlamr error: ' + e);
-                                break;
-                        }
-        
-                        node.status({ fill: 'red', shape: 'ring', text: 'error' });
-                    });
-                } catch (e) {
+                node.rtlamr.on('error', function (e) {
                     switch (e.errno) {
                         case 'ENOENT':
                             node.warn('Command not found: ' + node.cmd);
@@ -136,46 +71,42 @@ module.exports = function (RED) {
                             node.debug('rtlamr error: ' + e);
                             break;
                     }
-    
+
                     node.status({ fill: 'red', shape: 'ring', text: 'error' });
+                });
+            } catch (e) {
+                switch (e.errno) {
+                    case 'ENOENT':
+                        node.warn('Command not found: ' + node.cmd);
+                        break;
+                    case 'EACCES':
+                        node.warn('Command not executable: ' + node.cmd);
+                        break;
+                    default:
+                        node.log('error: ' + e);
+                        node.debug('rtlamr error: ' + e);
+                        break;
                 }
-            }, 10000);
+
+                node.status({ fill: 'red', shape: 'ring', text: 'error' });
+            }
+
         }
 
         node.on('close', function (done) {
             // Clear status
             node.status({});
 
-            // If both processes have exited, exit.
-            if (node.rtlamr == null && node.rtltcp == null) {
-                done();
-            }
-
-            var count = 0;
-
-            // If rtlamr is running try to kill it, otherwise increment counter
+            // If rtlamr is running try to kill it
             if (node.rtlamr != null) {
                 node.rtlamr.on('exit', function () {
-                    count++;
-                    if (count >= 2) { done(); }
-                })
+                    done();
+                });
                 node.rtlamr.kill('SIGKILL');
             } else {
-                count++;
-            }
-
-            // If rtltcp is running try to kill it, otherwise increment counter
-            if (node.rtltcp != null) {
-                node.rtltcp.on('exit', function () {
-                    count++;
-                    if (count >= 2) { done(); }
-                })
-                node.rtltcp.kill('SIGKILL');
-            } else {
-                count++;
+                done();
             }
         });
-
         start();
     }
 
