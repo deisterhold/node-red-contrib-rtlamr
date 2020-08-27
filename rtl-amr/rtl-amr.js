@@ -24,10 +24,10 @@ module.exports = function (RED) {
         node.cmd = 'rtlamr';
         node.args = ['-format', 'json'];
         node.rtlamr = null;
-        node.device = config.device;
+        node.server = config.server;
 
-        if (node.device) {
-            node.args.push('-server', node.device);
+        if (node.server) {
+            node.args.push('-server', node.server);
         }
 
         function start() {
