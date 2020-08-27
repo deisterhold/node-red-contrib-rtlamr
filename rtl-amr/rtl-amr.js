@@ -27,7 +27,7 @@ module.exports = function (RED) {
         node.device = config.device;
 
         if (node.device) {
-            node.args.push('-d', node.device);
+            node.args.push('-server', node.device);
         }
 
         function start() {
